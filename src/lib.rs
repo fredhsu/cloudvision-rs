@@ -5,6 +5,8 @@ use std::path::Path;
 use std::{env, fs};
 use url::Url;
 
+// TODO split Devices into different file and module
+//
 /// Wraps error types when working with CloudVision APIs or parsing
 #[derive(Debug)]
 pub enum CloudVisionError {
@@ -112,6 +114,7 @@ impl Client {
         let path = "/api/resources/inventory/v1/Device/all";
         let json_data = serde_json::to_string(filter)?;
         let response = self.post(path, json_data).await?;
+        // Using a stream Deserializer to parse the returned stream of JSON
         let dsr: Vec<DeviceServiceResponse> = serde_json::Deserializer::from_str(&response)
             .into_iter::<DeviceServiceResponse>()
             .filter_map(|x| x.ok())
@@ -192,7 +195,7 @@ pub struct DeviceStreamRequest {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum DeviceServiceResponse {
-    Result(DeviceStreamResponse),
+    Result(Box<DeviceStreamResponse>),
     Error,
 }
 
@@ -361,7 +364,8 @@ mod tests {
         };
         let stream = client.get_devices(&filter).await.unwrap();
         println!("{:?}", &stream);
-        assert!(!stream.is_empty());
+        // Using an arbitrary number assuming the demo account has 4 devices at all times
+        assert!(!stream.len() > 4);
     }
     #[tokio::test]
     async fn test_get_tags() {
