@@ -1,5 +1,6 @@
 use reqwest::header::*;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::Path;
 use std::{env, fs};
 use url::Url;
@@ -30,6 +31,7 @@ pub struct Client {
 }
 
 impl Client {
+    /// Create a new client based on a config
     pub fn new(config: Config) -> Self {
         let url = format!("https://{}/", &config.hostname);
         let mut url = Url::parse(&url).unwrap();
@@ -46,9 +48,13 @@ impl Client {
     pub fn set_accept_invalid_certs(&mut self, accept: bool) {
         self.accept_invalid_certs = accept;
     }
+
+    /// Returns a clone of the base url
     pub fn base_url(&self) -> Url {
         self.base_url.clone()
     }
+
+    /// Takes a path and returns a full url built upon the base
     pub fn build_url(&self, path: &str) -> Url {
         let mut url = self.base_url.clone();
         url.set_path(path);
@@ -56,7 +62,8 @@ impl Client {
     }
 
     /// Given an API path, perform a GET and return the result or Error
-    /// TODO: return something better than a String
+    /// TODO: return something better than a String maybe return the raw response
+    /// then you can run the .json() decoder from reqwest?
     pub async fn get(&self, path: &str) -> Result<String, CloudVisionError> {
         let url = self.build_url(path);
         let client = reqwest::Client::builder()
@@ -72,10 +79,13 @@ impl Client {
             .await?;
         Ok(response)
     }
+
+    /// Given an API path, perform a GET and return the result or Error
+    /// TODO: return something better than a String
     pub async fn post(&self, path: &str, body: String) -> Result<String, CloudVisionError> {
         let url = self.build_url(path);
         let client = reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_certs(self.accept_invalid_certs)
             .build()?;
         let response = client
             .post(url)
@@ -86,11 +96,40 @@ impl Client {
             .await?
             .text()
             .await?;
-        println!("POST response: {}", &response);
         Ok(response)
     }
-    pub async fn get_tags(&self) -> Result<String, CloudVisionError> {
+
+    pub async fn get_change_control(&self, key: &str) -> Result<String, CloudVisionError> {
+        let path = "/api/resources/tag/v2/ChangeControl/all";
+        self.get(path).await
+    }
+
+    /// Gets inventory matching the specified key and filter to get all use an empty filter
+    pub async fn get_devices(
+        &self,
+        filter: &PartialEqFilter,
+    ) -> Result<Vec<DeviceServiceResponse>, CloudVisionError> {
+        let path = "/api/resources/inventory/v1/Device/all";
+        let json_data = serde_json::to_string(filter)?;
+        let response = self.post(path, json_data).await?;
+        let dsr: Vec<DeviceServiceResponse> = serde_json::Deserializer::from_str(&response)
+            .into_iter::<DeviceServiceResponse>()
+            .filter_map(|x| x.ok())
+            .collect();
+        Ok(dsr)
+    }
+
+    /// Gets tags matching the specified key and filter
+    /// TODO: return something better than a String
+    pub async fn get_tags(&self, filter: &PartialEqFilter) -> Result<String, CloudVisionError> {
         let path = "/api/resources/tag/v2/Tag/all";
+        let json_data = serde_json::to_string(filter)?;
+        // TODO: Decode this, will need to use streaming decoder
+        self.post(path, json_data).await
+    }
+
+    /// Gets all tags
+    pub async fn get_all_tags(&self) -> Result<String, CloudVisionError> {
         let workspace_key = TagKey {
             workspace_id: None,
             element_type: None,
@@ -101,11 +140,10 @@ impl Client {
         let data = PartialEqFilter {
             partial_eq_filter: vec![filter],
         };
-        let json_data = serde_json::to_string(&data)?;
-        self.post(path, json_data).await
+        // TODO: Decode this, will need to use streaming decoder
+        self.get_tags(&data).await
     }
 }
-
 /// Config stores the information need to connect to CloudVision
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct Config {
@@ -145,6 +183,103 @@ impl Config {
 pub struct PartialEqFilter {
     partial_eq_filter: Vec<Tag>,
 }
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DeviceStreamRequest {
+    partial_eq_filter: Vec<Device>,
+    time: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum DeviceServiceResponse {
+    Result(DeviceStreamResponse),
+    Error,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DeviceResponse {
+    value: Device,
+    time: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DeviceStreamResponse {
+    value: Device,
+    time: String,
+    operation_type: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Device {
+    key: DeviceKey,
+    software_version: String,
+    model_name: String,
+    hardware_revision: String,
+    fqdn: String,
+    hostname: String,
+    domain_name: String,
+    system_mac_address: String,
+    boot_time: String,
+    streaming_status: StreamingStatus,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceKey {
+    device_id: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum StreamingStatus {
+    StreamingStatusUnspecified,
+    StreamingStatusInactive,
+    StreamingStatusActive,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Change {
+    name: String,
+    root_stage_id: String,
+    stages: StageMap,
+    notes: String,
+    time: Option<String>,
+    user: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct StageMap {
+    values: HashMap<String, Stage>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Stage {
+    name: String,
+    action: Action,
+    rows: String,
+    status: StageStatus,
+    error: Option<String>,
+}
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Action {
+    name: String,
+    timeout: u32,
+    args: Arg,
+}
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Arg {
+    values: HashMap<String, String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum StageStatus {
+    StageStatusUnspecified,
+    StageStatusRunning,
+    StageStatusCompleted,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Tag {
     key: TagKey,
@@ -216,6 +351,40 @@ mod tests {
             .post("/api/resources/v1/Event/all", "foo".to_string())
             .await
             .unwrap();
+        assert!(!results.is_empty());
+    }
+    #[tokio::test]
+    async fn test_get_all_devices() {
+        let client = Client::new(Config::from_file(Path::new("config/cloudvision.config")));
+        let filter = PartialEqFilter {
+            partial_eq_filter: Vec::new(),
+        };
+        let stream = client.get_devices(&filter).await.unwrap();
+        println!("{:?}", &stream);
+        assert!(!stream.is_empty());
+    }
+    #[tokio::test]
+    async fn test_get_tags() {
+        let client = Client::new(Config::from_file(Path::new("config/cloudvision.config")));
+        let filter = PartialEqFilter {
+            partial_eq_filter: Vec::new(),
+        };
+        let results = client.get_tags(&filter).await.unwrap();
+        println!("{:?}", results);
+        assert!(!results.is_empty());
+    }
+    #[tokio::test]
+    async fn test_get_all_tags() {
+        let client = Client::new(Config::from_file(Path::new("config/cloudvision.config")));
+        let results = client.get_all_tags().await.unwrap();
+        println!("{:?}", results);
+        assert!(!results.is_empty());
+    }
+    #[tokio::test]
+    async fn test_get_change_control() {
+        let client = Client::new(Config::from_file(Path::new("config/cloudvision.config")));
+        let results = client.get_change_control("").await.unwrap();
+        println!("{:?}", results);
         assert!(!results.is_empty());
     }
     #[test]
