@@ -5,8 +5,9 @@ use std::path::Path;
 use std::{env, fs};
 use url::Url;
 
-// TODO split Devices into different file and module
-//
+mod device;
+mod tag;
+
 /// Wraps error types when working with CloudVision APIs or parsing
 #[derive(Debug)]
 pub enum CloudVisionError {
@@ -110,16 +111,31 @@ impl Client {
     pub async fn get_devices(
         &self,
         filter: &PartialEqFilter,
-    ) -> Result<Vec<DeviceServiceResponse>, CloudVisionError> {
+    ) -> Result<Vec<device::DeviceServiceResponse>, CloudVisionError> {
         let path = "/api/resources/inventory/v1/Device/all";
         let json_data = serde_json::to_string(filter)?;
         let response = self.post(path, json_data).await?;
         // Using a stream Deserializer to parse the returned stream of JSON
-        let dsr: Vec<DeviceServiceResponse> = serde_json::Deserializer::from_str(&response)
-            .into_iter::<DeviceServiceResponse>()
+        let dsr: Vec<device::DeviceServiceResponse> = serde_json::Deserializer::from_str(&response)
+            .into_iter::<device::DeviceServiceResponse>()
             .filter_map(|x| x.ok())
             .collect();
         Ok(dsr)
+    }
+    pub async fn get_tag_assignment_config(
+        &self,
+        filter: &PartialEqFilter,
+    ) -> Result<Vec<tag::TagAssignmentServiceResponse>, CloudVisionError> {
+        let path = tag::TAG_ASSIGNMENT_CONFIG_URL;
+        let json_data = serde_json::to_string(filter)?;
+        let response = self.post(path, json_data).await?;
+        // Using a stream Deserializer to parse the returned stream of JSON
+        let tacr: Vec<tag::TagAssignmentServiceResponse> =
+            serde_json::Deserializer::from_str(&response)
+                .into_iter::<tag::TagAssignmentServiceResponse>()
+                .filter_map(|x| x.ok())
+                .collect();
+        Ok(tacr)
     }
 
     /// Gets tags matching the specified key and filter
@@ -185,60 +201,6 @@ impl Config {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PartialEqFilter {
     partial_eq_filter: Vec<Tag>,
-}
-#[derive(Serialize, Deserialize, Debug)]
-pub struct DeviceStreamRequest {
-    partial_eq_filter: Vec<Device>,
-    time: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "lowercase")]
-pub enum DeviceServiceResponse {
-    Result(Box<DeviceStreamResponse>),
-    Error,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct DeviceResponse {
-    value: Device,
-    time: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct DeviceStreamResponse {
-    value: Device,
-    time: String,
-    operation_type: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct Device {
-    key: DeviceKey,
-    software_version: String,
-    model_name: String,
-    hardware_revision: String,
-    fqdn: String,
-    hostname: String,
-    domain_name: String,
-    system_mac_address: String,
-    boot_time: String,
-    streaming_status: StreamingStatus,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct DeviceKey {
-    device_id: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum StreamingStatus {
-    StreamingStatusUnspecified,
-    StreamingStatusInactive,
-    StreamingStatusActive,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -355,6 +317,17 @@ mod tests {
             .await
             .unwrap();
         assert!(!results.is_empty());
+    }
+    #[tokio::test]
+    async fn test_get_all_tag_assignment_config() {
+        let client = Client::new(Config::from_file(Path::new("config/cloudvision.config")));
+        let filter = PartialEqFilter {
+            partial_eq_filter: Vec::new(),
+        };
+        let stream = client.get_tag_assignment_config(&filter).await.unwrap();
+        println!("{:?}", &stream);
+        // Using an arbitrary number assuming the demo account has 4 devices at all times
+        assert!(!stream.len() > 4);
     }
     #[tokio::test]
     async fn test_get_all_devices() {
