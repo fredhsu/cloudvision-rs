@@ -47,14 +47,6 @@ impl Config {
     }
 }
 
-// A CloudVision host
-pub struct Host {
-    hostname: String,
-    port: u32,
-    token: Option<String>,
-    pub base_url: String,
-}
-
 #[derive(Serialize, Deserialize, Debug)]
 pub struct TokenResponse {
     cookie: CookieResponse,
@@ -77,8 +69,7 @@ pub struct Tag {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct TagKey {
     pub workspace_id: Option<String>,
-    pub element_type: Option<String>,
-    //TODO make elementtype enum
+    pub element_type: Option<ElementType>,
     pub label: Option<String>,
     pub value: Option<String>,
 }
@@ -214,12 +205,16 @@ pub struct StartChange {
     pub cc_id: String,
 }
 
-impl Host {
-    pub fn new(hostname: &str, port: u32) -> Self {
-        Host {
-            hostname: hostname.to_string(),
-            port,
-            token: None,
+// A CloudVision Client
+pub struct Client {
+    config: Config,
+    base_url: Url,
+}
+
+impl Client {
+    pub fn new(config: Config) -> Self {
+        Self {
+            config,
             //base_url: format!("https://{}:{}", hostname, port),
             base_url: format!("https://{}", hostname),
         }
