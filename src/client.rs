@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 use std::{env, fs};
-use url::{Url};
+use url::Url;
 
 /// Wraps error types when working with CloudVision APIs or parsing
 #[derive(Debug)]
@@ -63,17 +63,19 @@ impl Client {
     }
 
     /// Takes a path and returns a full url built upon the base
-    pub fn build_url(&self, path: &str) -> Url {
+    pub fn build_url(&self, path: &str, query: Option<&str>) -> Url {
         let mut url = self.base_url.clone();
         url.set_path(path);
+        url.set_query(query);
         url
     }
 
     /// Given an API path, perform a GET and return the result or Error
     /// TODO: return something better than a String maybe return the raw response
     /// then you can run the .json() decoder from reqwest?
-    pub async fn get(&self, path: &str) -> Result<String, CloudVisionError> {
-        let url = self.build_url(path);
+    pub async fn get(&self, path: &str, query: Option<&str>) -> Result<String, CloudVisionError> {
+        let url = self.build_url(path, query);
+        println!("{}", &url);
         let client = reqwest::Client::builder()
             .danger_accept_invalid_certs(self.accept_invalid_certs)
             .build()?;
@@ -91,7 +93,7 @@ impl Client {
     /// Given an API path, perform a GET and return the result or Error
     /// TODO: return something better than a String
     pub async fn post(&self, path: &str, body: String) -> Result<String, CloudVisionError> {
-        let url = self.build_url(path);
+        let url = self.build_url(path, None);
         let client = reqwest::Client::builder()
             .danger_accept_invalid_certs(self.accept_invalid_certs)
             .build()?;
@@ -145,7 +147,7 @@ impl Config {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PartialEqFilter {
-    partial_eq_filter: Vec<Tag>,
+    partial_eq_filter: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -221,17 +223,25 @@ mod tests {
     fn test_build_url() {
         let base = Setup::new();
         let client = Client::new(base.config).unwrap();
-        let url = client.build_url("/api/resources/v2/tagAll/");
+        let url = client.build_url("/api/resources/v2/tagAll/", None);
         assert_eq!(
             url.to_string(),
             "https://www.cv-staging.corp.arista.io/api/resources/v2/tagAll/".to_string()
+        );
+        let url = client.build_url("/api/resources/v2/tagAll/", Some("query"));
+        assert_eq!(
+            url.to_string(),
+            "https://www.cv-staging.corp.arista.io/api/resources/v2/tagAll?query".to_string()
         );
     }
     #[tokio::test]
     async fn test_get() {
         let client =
             Client::new(Config::from_file(Path::new("config/cloudvision.config"))).unwrap();
-        let results = client.get("/api/resources/v1/Event/all").await.unwrap();
+        let results = client
+            .get("/api/resources/v1/Event/all", None)
+            .await
+            .unwrap();
         assert!(!results.is_empty());
     }
     #[tokio::test]

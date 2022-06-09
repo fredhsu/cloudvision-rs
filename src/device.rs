@@ -1,9 +1,4 @@
 use serde::{Deserialize, Serialize};
-#[derive(Serialize, Deserialize, Debug)]
-pub struct DeviceStreamRequest {
-    partial_eq_filter: Vec<Device>,
-    time: String,
-}
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "lowercase")]
@@ -12,9 +7,22 @@ pub enum DeviceServiceResponse {
     Error,
 }
 
+// TODO use proper time instead of string
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DeviceRequest {
+    key: DeviceKey,
+    time: String,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DeviceResponse {
     value: Device,
+    time: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DeviceStreamRequest {
+    partial_eq_filter: Vec<Device>,
     time: String,
 }
 
